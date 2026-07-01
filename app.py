@@ -75,21 +75,26 @@ else:
     # --- Sidebar Filters ---
     st.sidebar.header("Filters & Toggles")
 
-    # 1. NEW TOGGLE: Metric Selection
+    # Toggle: Metric Selection
     metric_toggle = st.sidebar.radio(
         "Select Utilisation Metric",
         options=["Max", "Average"],
         index=0,
-        help="Switches the primary metric used for standard charts. Burst, Gap, and Radar charts will naturally display both."
+        help="Switches the primary metric used for standard charts. Burst and Gap charts naturally display both."
     )
 
     search_query = st.sidebar.text_input("Search Interface Name", value="")
     selected_duration = st.sidebar.selectbox("Select Graph Duration", ["day", "week", "month", "year"], index=0)
 
+    # Multi-select: Device Type
     available_types = df["Type"].unique().tolist()
     selected_types = st.sidebar.multiselect("Filter by Device Type", options=available_types, default=available_types)
 
-    # Map the selected metric to our dynamic dataframe columns
+    # Multi-select: Device Filter
+    available_devices = df["Device"].unique().tolist()
+    selected_devices = st.sidebar.multiselect("Filter by Device", options=available_devices, default=available_devices)
+
+    # Map the selected metric to dynamic dataframe columns
     if metric_toggle == "Max":
         col_overall = "Max Overall Utilisation (%)"
         col_in = "In Max Utilisation (%)"
@@ -99,12 +104,18 @@ else:
         col_in = "In Avg Utilisation (%)"
         col_out = "Out Avg Utilisation (%)"
 
-    # Apply Filters
-    filtered_df = df[(df["Duration"] == selected_duration) & (df["Type"].isin(selected_types))]
+    # Apply Filters (Added Device logic)
+    filtered_df = df[
+        (df["Duration"] == selected_duration) &
+        (df["Type"].isin(selected_types)) &
+        (df["Device"].isin(selected_devices))
+        ]
+
     if search_query:
         filtered_df = filtered_df[filtered_df["Interface"].str.contains(search_query, case=False, na=False)]
 
     if not filtered_df.empty:
+        # Radar removed, tabs reduced to 10
         tabs = st.tabs([
             "💥 Burst Matrix",
             "🏋️ Gap Analysis",
@@ -113,13 +124,12 @@ else:
             "📈 Health Histogram",
             "🏆 Top 10 Congested",
             "🗃️ Treemap",
-            "🔆 Org Sunburst",
+            "🔆 Device Sunburst",
             "🍩 Capacity Donut",
-            "🕸️ Traffic Radar",
             "📝 Raw Data"
         ])
 
-        # TAB 1: Burst Matrix (Exempt from toggle)
+        # TAB 1: Burst Matrix
         with tabs[0]:
             fig_burst = px.scatter(
                 filtered_df, x="Avg Overall Utilisation (%)", y="Max Overall Utilisation (%)",
@@ -132,7 +142,7 @@ else:
             fig_burst.add_vline(x=60, line_dash="dash", line_color="orange", annotation_text="Sustained Warning")
             st.plotly_chart(fig_burst, use_container_width=True)
 
-        # TAB 2: Dumbbell Chart (Exempt from toggle)
+        # TAB 2: Dumbbell Chart
         with tabs[1]:
             st.subheader(f"Traffic Variance: Top 20 Links by Max ({selected_duration.upper()})")
             dumbbell_df = filtered_df.nlargest(20, 'Max Overall Utilisation (%)').sort_values(
@@ -160,7 +170,7 @@ else:
                                  height=CHART_HEIGHT)
             st.plotly_chart(fig_db, use_container_width=True)
 
-        # TAB 3: Tornado Chart (Dynamic)
+        # TAB 3: Tornado Chart (Axis color updated)
         with tabs[2]:
             st.subheader(f"Inbound vs Outbound Symmetry - {metric_toggle} ({selected_duration.upper()})")
             tornado_df = filtered_df.nlargest(20, col_overall).sort_values(col_overall, ascending=True)
@@ -189,18 +199,17 @@ else:
                     tickvals=[-100, -80, -60, -40, -20, 0, 20, 40, 60, 80, 100],
                     ticktext=["100", "80", "60", "40", "20", "0", "20", "40", "60", "80", "100"],
                     showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.3)', dtick=10,
-                    tickfont=dict(color="black")
+                    tickfont=dict(color="lightgray")  # Modified for dark mode visibility
                 )
             )
             st.plotly_chart(fig_tornado, use_container_width=True)
 
-        # TAB 4: Directional Utilisation Bar Chart (Dynamic)
+        # TAB 4: Directional Utilisation Bar Chart
         with tabs[3]:
             melted_df = filtered_df.melt(
                 id_vars=["Interface", "Device", "Type", "Port Speed"], value_vars=[col_in, col_out],
                 var_name="Direction", value_name="Utilisation (%)"
             )
-            # Clean up the legend names dynamically
             melted_df["Direction"] = melted_df["Direction"].str.replace(f" {metric_toggle} Utilisation (%)", "",
                                                                         regex=False)
 
@@ -212,7 +221,7 @@ else:
             fig_bar.add_hline(y=80, line_dash="dash", line_color="red")
             st.plotly_chart(fig_bar, use_container_width=True)
 
-        # TAB 5: Network Health Histogram (Dynamic)
+        # TAB 5: Network Health Histogram
         with tabs[4]:
             fig_hist = px.histogram(
                 filtered_df, x=col_overall, nbins=20, color="Type",
@@ -224,7 +233,7 @@ else:
             fig_hist.update_layout(bargap=0.1)
             st.plotly_chart(fig_hist, use_container_width=True)
 
-        # TAB 6: Top 10 Congested (Dynamic)
+        # TAB 6: Top 10 Congested
         with tabs[5]:
             top_10_df = filtered_df.sort_values(by=col_overall, ascending=False).head(10).sort_values(by=col_overall)
             fig_top = px.bar(
@@ -235,7 +244,7 @@ else:
             fig_top.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
             st.plotly_chart(fig_top, use_container_width=True)
 
-        # TAB 7: Treemap (Dynamic)
+        # TAB 7: Treemap
         with tabs[6]:
             fig_tree = px.treemap(
                 filtered_df, path=["Device", "Type", "Interface"], values="Port Capacity (bps)",
@@ -245,22 +254,22 @@ else:
             fig_tree.update_traces(root_color="lightgrey")
             st.plotly_chart(fig_tree, use_container_width=True)
 
-        # TAB 8: Organization Sunburst (Dynamic)
+        # TAB 8: Device Sunburst (Changed to Device -> Interface)
         with tabs[7]:
             sun_df = filtered_df.copy()
-            sun_df["Org"] = sun_df["Org"].replace(["", "Unknown"], "Uncategorized")
-            top_10_orgs = sun_df.groupby("Org")["Port Capacity (bps)"].sum().nlargest(10).index
-            sun_df["Org"] = sun_df["Org"].apply(lambda x: x if x in top_10_orgs else "Other")
+            # Top 10 Devices logic to prevent overwhelming slices
+            top_10_devices = sun_df.groupby("Device")["Port Capacity (bps)"].sum().nlargest(10).index
+            sun_df["Device"] = sun_df["Device"].apply(lambda x: x if x in top_10_devices else "Other")
 
             fig_sun = px.sunburst(
-                sun_df, path=["Org", "Device", "Interface"], values="Port Capacity (bps)",
+                sun_df, path=["Device", "Interface"], values="Port Capacity (bps)",
                 color=col_overall, color_continuous_scale="RdYlGn_r", range_color=[0, 100],
-                title=f"Capacity Allocation & {metric_toggle} Utilisation (Top 10 Organizations)", height=CHART_HEIGHT
+                title=f"Capacity Allocation & {metric_toggle} Utilisation (Top 10 Devices)", height=CHART_HEIGHT
             )
             fig_sun.update_traces(hovertemplate="<b>%{id}</b><br>Capacity: %{value}<br>Util: %{color:.2f}%")
             st.plotly_chart(fig_sun, use_container_width=True)
 
-        # TAB 9: Port Capacity Donut (Exempt from toggle)
+        # TAB 9: Port Capacity Donut
         with tabs[8]:
             fig_donut = px.pie(
                 filtered_df, names="Port Speed", values="Port Capacity (bps)", hole=0.4,
@@ -269,37 +278,8 @@ else:
             fig_donut.update_traces(textinfo='percent+label', hovertemplate="Speed: %{label}<br>Total bps: %{value}")
             st.plotly_chart(fig_donut, use_container_width=True)
 
-        # TAB 10: Device Personality Radar (Exempt from toggle)
+        # TAB 10: Raw Data Table
         with tabs[9]:
-            st.subheader(f"Traffic Fingerprint by Device Type ({selected_duration.upper()})")
-            radar_df = filtered_df.groupby("Type")[
-                ["In Avg Utilisation (%)", "Out Avg Utilisation (%)", "In Max Utilisation (%)",
-                 "Out Max Utilisation (%)"]
-            ].mean().reset_index()
-
-            fig_radar = go.Figure()
-            for i, row in radar_df.iterrows():
-                fig_radar.add_trace(go.Scatterpolar(
-                    r=[row["In Avg Utilisation (%)"], row["In Max Utilisation (%)"],
-                       row["Out Max Utilisation (%)"], row["Out Avg Utilisation (%)"],
-                       row["In Avg Utilisation (%)"]],
-                    theta=['In Avg', 'In Max', 'Out Max', 'Out Avg', 'In Avg'],
-                    fill='toself', name=row["Type"]
-                ))
-
-            fig_radar.update_layout(
-                polar=dict(
-                    radialaxis=dict(
-                        visible=True,
-                        range=[0, max(100, radar_df.drop("Type", axis=1).max().max() + 10)],
-                        tickfont=dict(color="black")
-                    )
-                ), showlegend=True, height=CHART_HEIGHT
-            )
-            st.plotly_chart(fig_radar, use_container_width=True)
-
-        # TAB 11: Raw Data Table (Heatmapped)
-        with tabs[10]:
             st.subheader(f"Raw Data View ({selected_duration.upper()})")
             display_cols = [
                 "Interface", "Device", "Type", "Org", "Port Speed",
