@@ -69,6 +69,10 @@ if df.empty:
 else:
     # --- Data Pre-Processing ---
     df["Port Capacity (bps)"] = df["Port Speed"].apply(speed_to_numeric)
+
+    # NEW: Create a clean Gbps column for human-readable tooltips
+    df["Port Capacity (Gbps)"] = df["Port Capacity (bps)"] / 1_000_000_000
+
     df["Max Overall Utilisation (%)"] = df[["In Max Utilisation (%)", "Out Max Utilisation (%)"]].max(axis=1)
     df["Avg Overall Utilisation (%)"] = df[["In Avg Utilisation (%)", "Out Avg Utilisation (%)"]].max(axis=1)
 
@@ -104,7 +108,7 @@ else:
         col_in = "In Avg Utilisation (%)"
         col_out = "Out Avg Utilisation (%)"
 
-    # Apply Filters (Added Device logic)
+    # Apply Filters
     filtered_df = df[
         (df["Duration"] == selected_duration) &
         (df["Type"].isin(selected_types)) &
@@ -115,7 +119,6 @@ else:
         filtered_df = filtered_df[filtered_df["Interface"].str.contains(search_query, case=False, na=False)]
 
     if not filtered_df.empty:
-        # Radar removed, tabs reduced to 10
         tabs = st.tabs([
             "💥 Burst Matrix",
             "🏋️ Gap Analysis",
@@ -133,9 +136,15 @@ else:
         with tabs[0]:
             fig_burst = px.scatter(
                 filtered_df, x="Avg Overall Utilisation (%)", y="Max Overall Utilisation (%)",
-                color="Type", size="Port Capacity (bps)", hover_name="Interface",
-                title=f"Burst Matrix: Average vs. Max Traffic ({selected_duration.upper()})", height=CHART_HEIGHT
+                color="Type", size="Port Capacity (Gbps)", hover_name="Interface",
+                title=f"Burst Matrix: Average vs. Max Traffic ({selected_duration.upper()})",
+                height=CHART_HEIGHT,
+                size_max=50  # <--- Scales up the absolute maximum size for your 400G links
             )
+
+            # <--- Forces the smallest orbs (e.g., 1G) to never shrink below 6 pixels
+            fig_burst.update_traces(marker=dict(sizemin=6))
+
             max_val = max(filtered_df["Max Overall Utilisation (%)"].max(), 100)
             fig_burst.add_shape(type="line", x0=0, y0=0, x1=max_val, y1=max_val, line=dict(color="gray", dash="dot"))
             fig_burst.add_hline(y=80, line_dash="dash", line_color="red", annotation_text="Critical Burst Line")
@@ -170,7 +179,7 @@ else:
                                  height=CHART_HEIGHT)
             st.plotly_chart(fig_db, use_container_width=True)
 
-        # TAB 3: Tornado Chart (Axis color updated)
+        # TAB 3: Tornado Chart
         with tabs[2]:
             st.subheader(f"Inbound vs Outbound Symmetry - {metric_toggle} ({selected_duration.upper()})")
             tornado_df = filtered_df.nlargest(20, col_overall).sort_values(col_overall, ascending=True)
@@ -199,7 +208,7 @@ else:
                     tickvals=[-100, -80, -60, -40, -20, 0, 20, 40, 60, 80, 100],
                     ticktext=["100", "80", "60", "40", "20", "0", "20", "40", "60", "80", "100"],
                     showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.3)', dtick=10,
-                    tickfont=dict(color="lightgray")  # Modified for dark mode visibility
+                    tickfont=dict(color="lightgray")
                 )
             )
             st.plotly_chart(fig_tornado, use_container_width=True)
@@ -244,39 +253,57 @@ else:
             fig_top.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
             st.plotly_chart(fig_top, use_container_width=True)
 
-        # TAB 7: Treemap
+        # TAB 7: Treemap (Updated to Gbps)
         with tabs[6]:
             fig_tree = px.treemap(
-                filtered_df, path=["Device", "Type", "Interface"], values="Port Capacity (bps)",
+                filtered_df, path=["Device", "Type", "Interface"], values="Port Capacity (Gbps)",
                 color=col_overall, color_continuous_scale="RdYlGn_r", range_color=[0, 100], height=CHART_HEIGHT,
                 title=f"Hierarchical Capacity vs {metric_toggle} Saturation ({selected_duration.upper()})"
             )
-            fig_tree.update_traces(root_color="lightgrey")
+            # Use formatting to lock to 2 decimal places for Gbps
+            fig_tree.update_traces(root_color="lightgrey",
+                                   hovertemplate="<b>%{id}</b><br>Capacity: %{value:,.2f} Gbps<br>Util: %{color:.2f}%")
             st.plotly_chart(fig_tree, use_container_width=True)
 
-        # TAB 8: Device Sunburst (Changed to Device -> Interface)
+        # TAB 8: Device Sunburst (Updated to Gbps)
         with tabs[7]:
             sun_df = filtered_df.copy()
-            # Top 10 Devices logic to prevent overwhelming slices
-            top_10_devices = sun_df.groupby("Device")["Port Capacity (bps)"].sum().nlargest(10).index
+            top_10_devices = sun_df.groupby("Device")["Port Capacity (Gbps)"].sum().nlargest(10).index
             sun_df["Device"] = sun_df["Device"].apply(lambda x: x if x in top_10_devices else "Other")
 
             fig_sun = px.sunburst(
-                sun_df, path=["Device", "Interface"], values="Port Capacity (bps)",
+                sun_df, path=["Device", "Interface"], values="Port Capacity (Gbps)",
                 color=col_overall, color_continuous_scale="RdYlGn_r", range_color=[0, 100],
                 title=f"Capacity Allocation & {metric_toggle} Utilisation (Top 10 Devices)", height=CHART_HEIGHT
             )
-            fig_sun.update_traces(hovertemplate="<b>%{id}</b><br>Capacity: %{value}<br>Util: %{color:.2f}%")
+            # Changed the hover template to add Gbps text
+            fig_sun.update_traces(hovertemplate="<b>%{id}</b><br>Capacity: %{value:,.2f} Gbps<br>Util: %{color:.2f}%")
             st.plotly_chart(fig_sun, use_container_width=True)
 
-        # TAB 9: Port Capacity Donut
+        # TAB 9: Port Capacity Donut (Updated to Gbps)
         with tabs[8]:
-            fig_donut = px.pie(
-                filtered_df, names="Port Speed", values="Port Capacity (bps)", hole=0.4,
-                title="Total Provisioned Capacity Broken Down by Interface Speed", height=CHART_HEIGHT
-            )
-            fig_donut.update_traces(textinfo='percent+label', hovertemplate="Speed: %{label}<br>Total bps: %{value}")
-            st.plotly_chart(fig_donut, use_container_width=True)
+            st.subheader(f"Total Provisioned Capacity - Single Device View ({selected_duration.upper()})")
+
+            donut_devices = sorted(filtered_df["Device"].unique().tolist())
+
+            if donut_devices:
+                selected_donut_device = st.selectbox(
+                    "Select a device to view its isolated capacity (prevents cross-link double counting):",
+                    options=donut_devices
+                )
+
+                donut_df = filtered_df[filtered_df["Device"] == selected_donut_device].copy()
+
+                fig_donut = px.pie(
+                    donut_df, names="Port Speed", values="Port Capacity (Gbps)", hole=0.4,
+                    title=f"Capacity Broken Down by Interface Speed for {selected_donut_device}", height=CHART_HEIGHT
+                )
+                # Changed the hover template to add Gbps text
+                fig_donut.update_traces(textinfo='percent+label',
+                                        hovertemplate="Speed: %{label}<br>Total Capacity: %{value:,.2f} Gbps")
+                st.plotly_chart(fig_donut, use_container_width=True)
+            else:
+                st.info("No devices available to display based on your current sidebar filters.")
 
         # TAB 10: Raw Data Table
         with tabs[9]:
