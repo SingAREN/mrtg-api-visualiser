@@ -1,12 +1,20 @@
 import re
 import pandas as pd
 import requests
+import yaml
 
 # --- Configuration ---
-BASE_URL = "http://127.0.0.1/mrtg/"
-EXCLUDED_INTERFACES = [""]  # Exclude by exact interface name
-EXCLUDED_DEVICES = [""]  # Exclude by parsed Device name
-EXCLUDED_INTERFACE_SUBSTRINGS = ["-AGG"]  # Exclude if interface name contains these strings
+
+with open("config.yml", "r") as file:
+    try:
+        config = yaml.safe_load(file)
+    except yaml.YAMLError as e:
+        print(f"Error parsing YAML file: {e}")
+
+BASE_URL = config["api_url"]
+EXCLUDED_INTERFACES = config["excluded_interfaces"]  # Exclude by exact interface name
+EXCLUDED_DEVICES = config["excluded_devices"]  # Exclude by parsed Device name
+EXCLUDED_INTERFACE_SUBSTRINGS = config["excluded_interface_substrings"]  # Exclude if interface name contains these strings
 
 
 def parse_to_bps(value_str):

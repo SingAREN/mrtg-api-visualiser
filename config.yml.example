@@ -1,0 +1,7 @@
+api_url: "http://127.0.0.1/mrtg/"
+excluded_interfaces:  # Exclude by exact interface name
+  - ""
+excluded_devices:  # Exclude by parsed Device name
+  - ""
+excluded_interface_substrings:   # Exclude if interface name contains these
+  - "-AGG"
