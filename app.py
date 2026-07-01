@@ -70,7 +70,7 @@ else:
     # --- Data Pre-Processing ---
     df["Port Capacity (bps)"] = df["Port Speed"].apply(speed_to_numeric)
 
-    # NEW: Create a clean Gbps column for human-readable tooltips
+    # Create a clean Gbps column for human-readable tooltips
     df["Port Capacity (Gbps)"] = df["Port Capacity (bps)"] / 1_000_000_000
 
     df["Max Overall Utilisation (%)"] = df[["In Max Utilisation (%)", "Out Max Utilisation (%)"]].max(axis=1)
@@ -139,17 +139,15 @@ else:
                 color="Type", size="Port Capacity (Gbps)", hover_name="Interface",
                 title=f"Burst Matrix: Average vs. Max Traffic ({selected_duration.upper()})",
                 height=CHART_HEIGHT,
-                size_max=50  # <--- Scales up the absolute maximum size for your 400G links
+                size_max=50
             )
-
-            # <--- Forces the smallest orbs (e.g., 1G) to never shrink below 6 pixels
             fig_burst.update_traces(marker=dict(sizemin=6))
 
             max_val = max(filtered_df["Max Overall Utilisation (%)"].max(), 100)
             fig_burst.add_shape(type="line", x0=0, y0=0, x1=max_val, y1=max_val, line=dict(color="gray", dash="dot"))
             fig_burst.add_hline(y=80, line_dash="dash", line_color="red", annotation_text="Critical Burst Line")
             fig_burst.add_vline(x=60, line_dash="dash", line_color="orange", annotation_text="Sustained Warning")
-            st.plotly_chart(fig_burst, use_container_width=True)
+            st.plotly_chart(fig_burst, width='stretch')
 
         # TAB 2: Dumbbell Chart
         with tabs[1]:
@@ -177,7 +175,7 @@ else:
             fig_db.update_layout(xaxis_title="Utilisation (%)", yaxis_title="",
                                  xaxis_range=[0, max(100, dumbbell_df["Max Overall Utilisation (%)"].max() + 5)],
                                  height=CHART_HEIGHT)
-            st.plotly_chart(fig_db, use_container_width=True)
+            st.plotly_chart(fig_db, width='stretch')
 
         # TAB 3: Tornado Chart
         with tabs[2]:
@@ -211,7 +209,7 @@ else:
                     tickfont=dict(color="lightgray")
                 )
             )
-            st.plotly_chart(fig_tornado, use_container_width=True)
+            st.plotly_chart(fig_tornado, width='stretch')
 
         # TAB 4: Directional Utilisation Bar Chart
         with tabs[3]:
@@ -228,7 +226,7 @@ else:
             )
             fig_bar.add_hline(y=60, line_dash="dash", line_color="orange")
             fig_bar.add_hline(y=80, line_dash="dash", line_color="red")
-            st.plotly_chart(fig_bar, use_container_width=True)
+            st.plotly_chart(fig_bar, width='stretch')
 
         # TAB 5: Network Health Histogram
         with tabs[4]:
@@ -240,7 +238,7 @@ else:
             )
             fig_hist.update_traces(xbins=dict(start=0))
             fig_hist.update_layout(bargap=0.1)
-            st.plotly_chart(fig_hist, use_container_width=True)
+            st.plotly_chart(fig_hist, width='stretch')
 
         # TAB 6: Top 10 Congested
         with tabs[5]:
@@ -251,21 +249,20 @@ else:
                 title=f"Top 10 Congested Links by {metric_toggle} Utilisation ({selected_duration.upper()})"
             )
             fig_top.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
-            st.plotly_chart(fig_top, use_container_width=True)
+            st.plotly_chart(fig_top, width='stretch')
 
-        # TAB 7: Treemap (Updated to Gbps)
+        # TAB 7: Treemap
         with tabs[6]:
             fig_tree = px.treemap(
                 filtered_df, path=["Device", "Type", "Interface"], values="Port Capacity (Gbps)",
                 color=col_overall, color_continuous_scale="RdYlGn_r", range_color=[0, 100], height=CHART_HEIGHT,
                 title=f"Hierarchical Capacity vs {metric_toggle} Saturation ({selected_duration.upper()})"
             )
-            # Use formatting to lock to 2 decimal places for Gbps
             fig_tree.update_traces(root_color="lightgrey",
                                    hovertemplate="<b>%{id}</b><br>Capacity: %{value:,.2f} Gbps<br>Util: %{color:.2f}%")
-            st.plotly_chart(fig_tree, use_container_width=True)
+            st.plotly_chart(fig_tree, width='stretch')
 
-        # TAB 8: Device Sunburst (Updated to Gbps)
+        # TAB 8: Device Sunburst
         with tabs[7]:
             sun_df = filtered_df.copy()
             top_10_devices = sun_df.groupby("Device")["Port Capacity (Gbps)"].sum().nlargest(10).index
@@ -276,11 +273,10 @@ else:
                 color=col_overall, color_continuous_scale="RdYlGn_r", range_color=[0, 100],
                 title=f"Capacity Allocation & {metric_toggle} Utilisation (Top 10 Devices)", height=CHART_HEIGHT
             )
-            # Changed the hover template to add Gbps text
             fig_sun.update_traces(hovertemplate="<b>%{id}</b><br>Capacity: %{value:,.2f} Gbps<br>Util: %{color:.2f}%")
-            st.plotly_chart(fig_sun, use_container_width=True)
+            st.plotly_chart(fig_sun, width='stretch')
 
-        # TAB 9: Port Capacity Donut (Updated to Gbps)
+        # TAB 9: Port Capacity Donut
         with tabs[8]:
             st.subheader(f"Total Provisioned Capacity - Single Device View ({selected_duration.upper()})")
 
@@ -298,10 +294,9 @@ else:
                     donut_df, names="Port Speed", values="Port Capacity (Gbps)", hole=0.4,
                     title=f"Capacity Broken Down by Interface Speed for {selected_donut_device}", height=CHART_HEIGHT
                 )
-                # Changed the hover template to add Gbps text
                 fig_donut.update_traces(textinfo='percent+label',
                                         hovertemplate="Speed: %{label}<br>Total Capacity: %{value:,.2f} Gbps")
-                st.plotly_chart(fig_donut, use_container_width=True)
+                st.plotly_chart(fig_donut, width='stretch')
             else:
                 st.info("No devices available to display based on your current sidebar filters.")
 
@@ -323,4 +318,4 @@ else:
                 ], vmin=0, vmax=100
             ).format(precision=2)
 
-            st.dataframe(styled_df, use_container_width=True, height=CHART_HEIGHT)
+            st.dataframe(styled_df, width="stretch", height=CHART_HEIGHT)
