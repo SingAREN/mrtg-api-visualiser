@@ -144,7 +144,7 @@ else:
 
         # TAB 3: Tornado Chart (In/Out Imbalance)
         with tabs[2]:
-            st.subheader(f"Inbound vs Outbound Symmetry: Top 20 Links ({selected_duration.upper()})")
+            st.subheader(f"Average Inbound vs Outbound Symmetry: Top 20 Links ({selected_duration.upper()})")
 
             tornado_df = filtered_df.nlargest(20, 'Avg Overall Utilisation (%)').sort_values(
                 'Avg Overall Utilisation (%)', ascending=True)
