@@ -300,16 +300,39 @@ else:
         # TAB 8: Device Sunburst 
         with tabs[7]:
             sun_df = filtered_df.copy()
-            top_10_devices = sun_df.groupby("Device")["Port Capacity (Gbps)"].sum().nlargest(10).index
-            sun_df["Device"] = sun_df["Device"].apply(lambda x: x if x in top_10_devices else "Other")
 
-            fig_sun = px.sunburst(
-                sun_df, path=["Device", "Interface"], values="Port Capacity (Gbps)",
-                color=col_overall, color_continuous_scale="RdYlGn_r", range_color=[0, 100],
-                title=f"Capacity Allocation & {metric_toggle} Utilisation (Top 10 Devices)", height=CHART_HEIGHT
-            )
-            fig_sun.update_traces(hovertemplate="<b>%{id}</b><br>Capacity: %{value:,.2f} Gbps<br>Util: %{color:.2f}%")
-            st.plotly_chart(fig_sun, width="stretch")
+            # Sub-tabs to solve the extreme scaling difference
+            sun_tab1, sun_tab2 = st.tabs(["📊 Capacity Scaled (Proportional)", "🕸️ Topology Scaled (Equal Visibility)"])
+
+            with sun_tab1:
+                fig_sun1 = px.sunburst(
+                    sun_df, path=["Device", "Interface"], values="Port Capacity (Gbps)",
+                    color=col_overall, color_continuous_scale="RdYlGn_r", range_color=[0, 100],
+                    title=f"Device Allocation (Proportional Sizing) - {metric_toggle} Utilisation", height=CHART_HEIGHT
+                )
+                fig_sun1.update_traces(
+                    hovertemplate="<b>%{id}</b><br>Capacity: %{value:,.2f} Gbps<br>Util: %{color:.2f}%")
+                st.plotly_chart(fig_sun1, width="stretch")
+
+            with sun_tab2:
+                # Add a dummy uniform weight so Plotly gives every device an equal slice of the visual pie
+                sun_df["Uniform Weight"] = 1
+                fig_sun2 = px.sunburst(
+                    sun_df, path=["Device", "Interface"], values="Uniform Weight",
+                    color=col_overall, color_continuous_scale="RdYlGn_r", range_color=[0, 100],
+                    title=f"Device Allocation (Equal Visibility) - {metric_toggle} Utilisation", height=CHART_HEIGHT,
+                    hover_data={"Port Capacity (Gbps)": True, "Uniform Weight": False}
+                )
+                # customdata[0] maps to the hover_data property we fed it above
+                fig_sun2.update_traces(
+                    hovertemplate="<b>%{id}</b><br>Capacity: %{customdata[0]:,.2f} Gbps<br>Util: %{color:.2f}%")
+                st.plotly_chart(fig_sun2, width="stretch")
+
+            # Expandable Drawer for raw visibility
+            with st.expander("🔍 Expand to view raw Device Capacity Summary (Smallest to Largest)"):
+                device_summary = sun_df.groupby("Device")["Port Capacity (Gbps)"].sum().reset_index().sort_values(
+                    "Port Capacity (Gbps)")
+                st.dataframe(device_summary, width="stretch")
 
         # TAB 9: Port Capacity Donut 
         with tabs[8]:
