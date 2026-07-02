@@ -5,6 +5,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+from streamlit_autorefresh import st_autorefresh
 from data_collector import fetch_mrtg_data
 
 CACHE_FILE = "mrtg_data.csv"
@@ -35,6 +36,12 @@ def load_cached_data():
         last_updated = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
         return df, last_updated
     return None, None
+
+
+@st.cache_data
+def convert_df_to_csv(df):
+    """Converts a dataframe to a CSV format for the download button."""
+    return df.to_csv(index=False).encode('utf-8')
 
 
 # --- Data Loading ---
@@ -69,36 +76,43 @@ if df.empty:
 else:
     # --- Data Pre-Processing ---
     df["Port Capacity (bps)"] = df["Port Speed"].apply(speed_to_numeric)
-
-    # Create a clean Gbps column for human-readable tooltips
     df["Port Capacity (Gbps)"] = df["Port Capacity (bps)"] / 1_000_000_000
-
     df["Max Overall Utilisation (%)"] = df[["In Max Utilisation (%)", "Out Max Utilisation (%)"]].max(axis=1)
     df["Avg Overall Utilisation (%)"] = df[["In Avg Utilisation (%)", "Out Avg Utilisation (%)"]].max(axis=1)
 
-    # --- Sidebar Filters ---
+    # --- Sidebar Filters & Tools ---
+    st.sidebar.header("Tools & Automation")
+
+    # NEW: Auto-Refresh Toggle (1,800,000 milliseconds = 30 minutes)
+    auto_refresh = st.sidebar.toggle("⏱️ Enable 30-Min Auto-Refresh", value=False)
+    if auto_refresh:
+        refresh_count = st_autorefresh(interval=1800000, limit=None, key="data_autorefresh")
+        if refresh_count > 0:  # Ensures it doesn't immediately fetch on the very first page load
+            fresh_df = fetch_mrtg_data()
+            fresh_df.to_csv(CACHE_FILE, index=False)
+            st.session_state["df_mrtg"] = fresh_df
+            st.session_state["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            st.rerun()
+
+    st.sidebar.divider()
     st.sidebar.header("Filters & Toggles")
 
-    # Toggle: Metric Selection
     metric_toggle = st.sidebar.radio(
         "Select Utilisation Metric",
         options=["Max", "Average"],
         index=0,
-        help="Switches the primary metric used for standard charts. Burst and Gap charts naturally display both."
+        help="Switches the primary metric used for standard charts."
     )
 
     search_query = st.sidebar.text_input("Search Interface Name", value="")
     selected_duration = st.sidebar.selectbox("Select Graph Duration", ["day", "week", "month", "year"], index=0)
 
-    # Multi-select: Device Type
     available_types = df["Type"].unique().tolist()
     selected_types = st.sidebar.multiselect("Filter by Device Type", options=available_types, default=available_types)
 
-    # Multi-select: Device Filter
     available_devices = df["Device"].unique().tolist()
     selected_devices = st.sidebar.multiselect("Filter by Device", options=available_devices, default=available_devices)
 
-    # Map the selected metric to dynamic dataframe columns
     if metric_toggle == "Max":
         col_overall = "Max Overall Utilisation (%)"
         col_in = "In Max Utilisation (%)"
@@ -108,7 +122,7 @@ else:
         col_in = "In Avg Utilisation (%)"
         col_out = "Out Avg Utilisation (%)"
 
-    # Apply Filters
+    # Apply Filters 
     filtered_df = df[
         (df["Duration"] == selected_duration) &
         (df["Type"].isin(selected_types)) &
@@ -118,7 +132,18 @@ else:
     if search_query:
         filtered_df = filtered_df[filtered_df["Interface"].str.contains(search_query, case=False, na=False)]
 
+    # NEW: Download Button
     if not filtered_df.empty:
+        st.sidebar.divider()
+        st.sidebar.header("Export Data")
+        csv_data = convert_df_to_csv(filtered_df)
+        st.sidebar.download_button(
+            label="📥 Download Current View (CSV)",
+            data=csv_data,
+            file_name=f"mrtg_export_{selected_duration}_{datetime.now().strftime('%Y%m%d')}.csv",
+            mime="text/csv",
+        )
+
         tabs = st.tabs([
             "💥 Burst Matrix",
             "🏋️ Gap Analysis",
@@ -132,7 +157,7 @@ else:
             "📝 Raw Data"
         ])
 
-        # TAB 1: Burst Matrix
+        # TAB 1: Burst Matrix 
         with tabs[0]:
             fig_burst = px.scatter(
                 filtered_df, x="Avg Overall Utilisation (%)", y="Max Overall Utilisation (%)",
@@ -142,14 +167,13 @@ else:
                 size_max=50
             )
             fig_burst.update_traces(marker=dict(sizemin=6))
-
             max_val = max(filtered_df["Max Overall Utilisation (%)"].max(), 100)
             fig_burst.add_shape(type="line", x0=0, y0=0, x1=max_val, y1=max_val, line=dict(color="gray", dash="dot"))
             fig_burst.add_hline(y=80, line_dash="dash", line_color="red", annotation_text="Critical Burst Line")
             fig_burst.add_vline(x=60, line_dash="dash", line_color="orange", annotation_text="Sustained Warning")
-            st.plotly_chart(fig_burst, width='stretch')
+            st.plotly_chart(fig_burst, width="stretch")
 
-        # TAB 2: Dumbbell Chart
+        # TAB 2: Dumbbell Chart 
         with tabs[1]:
             st.subheader(f"Traffic Variance: Top 20 Links by Max ({selected_duration.upper()})")
             dumbbell_df = filtered_df.nlargest(20, 'Max Overall Utilisation (%)').sort_values(
@@ -175,9 +199,9 @@ else:
             fig_db.update_layout(xaxis_title="Utilisation (%)", yaxis_title="",
                                  xaxis_range=[0, max(100, dumbbell_df["Max Overall Utilisation (%)"].max() + 5)],
                                  height=CHART_HEIGHT)
-            st.plotly_chart(fig_db, width='stretch')
+            st.plotly_chart(fig_db, width="stretch")
 
-        # TAB 3: Tornado Chart
+        # TAB 3: Tornado Chart 
         with tabs[2]:
             st.subheader(f"Inbound vs Outbound Symmetry - {metric_toggle} ({selected_duration.upper()})")
             tornado_df = filtered_df.nlargest(20, col_overall).sort_values(col_overall, ascending=True)
@@ -209,9 +233,9 @@ else:
                     tickfont=dict(color="lightgray")
                 )
             )
-            st.plotly_chart(fig_tornado, width='stretch')
+            st.plotly_chart(fig_tornado, width="stretch")
 
-        # TAB 4: Directional Utilisation Bar Chart
+        # TAB 4: Directional Utilisation Bar Chart 
         with tabs[3]:
             melted_df = filtered_df.melt(
                 id_vars=["Interface", "Device", "Type", "Port Speed"], value_vars=[col_in, col_out],
@@ -226,9 +250,9 @@ else:
             )
             fig_bar.add_hline(y=60, line_dash="dash", line_color="orange")
             fig_bar.add_hline(y=80, line_dash="dash", line_color="red")
-            st.plotly_chart(fig_bar, width='stretch')
+            st.plotly_chart(fig_bar, width="stretch")
 
-        # TAB 5: Network Health Histogram
+        # TAB 5: Network Health Histogram 
         with tabs[4]:
             fig_hist = px.histogram(
                 filtered_df, x=col_overall, nbins=20, color="Type",
@@ -238,9 +262,9 @@ else:
             )
             fig_hist.update_traces(xbins=dict(start=0))
             fig_hist.update_layout(bargap=0.1)
-            st.plotly_chart(fig_hist, width='stretch')
+            st.plotly_chart(fig_hist, width="stretch")
 
-        # TAB 6: Top 10 Congested
+        # TAB 6: Top 10 Congested 
         with tabs[5]:
             top_10_df = filtered_df.sort_values(by=col_overall, ascending=False).head(10).sort_values(by=col_overall)
             fig_top = px.bar(
@@ -249,9 +273,9 @@ else:
                 title=f"Top 10 Congested Links by {metric_toggle} Utilisation ({selected_duration.upper()})"
             )
             fig_top.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
-            st.plotly_chart(fig_top, width='stretch')
+            st.plotly_chart(fig_top, width="stretch")
 
-        # TAB 7: Treemap
+        # TAB 7: Treemap 
         with tabs[6]:
             fig_tree = px.treemap(
                 filtered_df, path=["Device", "Type", "Interface"], values="Port Capacity (Gbps)",
@@ -260,9 +284,9 @@ else:
             )
             fig_tree.update_traces(root_color="lightgrey",
                                    hovertemplate="<b>%{id}</b><br>Capacity: %{value:,.2f} Gbps<br>Util: %{color:.2f}%")
-            st.plotly_chart(fig_tree, width='stretch')
+            st.plotly_chart(fig_tree, width="stretch")
 
-        # TAB 8: Device Sunburst
+        # TAB 8: Device Sunburst 
         with tabs[7]:
             sun_df = filtered_df.copy()
             top_10_devices = sun_df.groupby("Device")["Port Capacity (Gbps)"].sum().nlargest(10).index
@@ -274,9 +298,9 @@ else:
                 title=f"Capacity Allocation & {metric_toggle} Utilisation (Top 10 Devices)", height=CHART_HEIGHT
             )
             fig_sun.update_traces(hovertemplate="<b>%{id}</b><br>Capacity: %{value:,.2f} Gbps<br>Util: %{color:.2f}%")
-            st.plotly_chart(fig_sun, width='stretch')
+            st.plotly_chart(fig_sun, width="stretch")
 
-        # TAB 9: Port Capacity Donut
+        # TAB 9: Port Capacity Donut 
         with tabs[8]:
             st.subheader(f"Total Provisioned Capacity - Single Device View ({selected_duration.upper()})")
 
@@ -296,11 +320,11 @@ else:
                 )
                 fig_donut.update_traces(textinfo='percent+label',
                                         hovertemplate="Speed: %{label}<br>Total Capacity: %{value:,.2f} Gbps")
-                st.plotly_chart(fig_donut, width='stretch')
+                st.plotly_chart(fig_donut, width="stretch")
             else:
                 st.info("No devices available to display based on your current sidebar filters.")
 
-        # TAB 10: Raw Data Table
+        # TAB 10: Raw Data Table 
         with tabs[9]:
             st.subheader(f"Raw Data View ({selected_duration.upper()})")
             display_cols = [
@@ -319,3 +343,4 @@ else:
             ).format(precision=2)
 
             st.dataframe(styled_df, width="stretch", height=CHART_HEIGHT)
+        
