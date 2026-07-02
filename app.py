@@ -83,16 +83,27 @@ else:
     # --- Sidebar Filters & Tools ---
     st.sidebar.header("Tools & Automation")
 
-    # NEW: Auto-Refresh Toggle (1,800,000 milliseconds = 30 minutes)
+    # Auto-Refresh Toggle (1,800,000 milliseconds = 30 minutes)
     auto_refresh = st.sidebar.toggle("⏱️ Enable 30-Min Auto-Refresh", value=False)
     if auto_refresh:
         refresh_count = st_autorefresh(interval=1800000, limit=None, key="data_autorefresh")
-        if refresh_count > 0:  # Ensures it doesn't immediately fetch on the very first page load
-            fresh_df = fetch_mrtg_data()
-            fresh_df.to_csv(CACHE_FILE, index=False)
-            st.session_state["df_mrtg"] = fresh_df
-            st.session_state["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            st.rerun()
+
+        # Initialize a tracker to prevent infinite loops
+        if "last_refresh_count" not in st.session_state:
+            st.session_state["last_refresh_count"] = 0
+
+        # Only fetch data if the autorefresh timer has actually ticked forward
+        if refresh_count > st.session_state["last_refresh_count"]:
+            with st.spinner("Auto-refreshing network data..."):
+                fresh_df = fetch_mrtg_data()
+                fresh_df.to_csv(CACHE_FILE, index=False)
+                st.session_state["df_mrtg"] = fresh_df
+                st.session_state["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                # Update the tracker to match current count
+                st.session_state["last_refresh_count"] = refresh_count
+
+                # We do NOT use st.rerun() here, as st_autorefresh already handles the page refresh
 
     st.sidebar.divider()
     st.sidebar.header("Filters & Toggles")
